@@ -1,5 +1,5 @@
 # hophacks2023
-**This repository contains the source code for the Influenza Predictions WebApp engineered dataset web application code.**<br/><br/>
+**This repository contains the source code for the Influenza Predictions WebApp engineered dataset (main branch) and web application code (gh-pages branch).**<br/><br/>
 
 The Python code int he main branch is used to output a shapefile (.shp) file containing the resulting predictions of influenza infections for 180 countries from 2023 to 2028. The primary machine learning model used was the XGBoost regressor from the XGBoost API. Due to the robust data manipulation of the parent dataset, there was no hyperparameter tuning as the resulting R-Squared and RMSE values are considered ideal. Once when the production ready prediction shapefile is created, a supplementary Python script (mz_hophacks2023_upload_2_agol.py) was created to automate the process to upload and publish content in ArcGIS Online (AGOL).
 
