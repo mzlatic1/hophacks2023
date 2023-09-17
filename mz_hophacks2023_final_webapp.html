@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<!--
+Author: Marko Zlatic
+Date: September 17, 2023
+Purpose: HopHacks 2023
+Student Status: Graduate
+Program: MSc. Geographic Information Systems
+University: Johns Hopkins University
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MZ HopHacks 2023</title>
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+    <link rel="stylesheet" href="https://js.arcgis.com/4.24/esri/themes/light/main.css"/>
+
+    <style>
+        html,
+        body {
+            padding: 0;
+            margin: 0;
+            height: 100%;
+            width: 100%;
+            background-color: #B6B6B6;
+        }
+        main{
+            background-color: azure;
+        }
+        header{
+            position: absolute;
+            height: 5%;
+            width: 100%;
+            text-align: center;
+            font-size: x-large;
+            font-weight: bold;
+        }
+        #mapDiv{
+            position: absolute;
+            height: 85%;
+            width: 70%;
+            bottom: 10%;
+            left: 15%;
+        }
+        #legend{
+            position: absolute;
+            height: 30%;
+            width: 15%;
+            top: 5%;
+            right: 0;
+        }
+        #symbToggle{
+            position: absolute;
+            height: 30%;
+            width: 15%;
+            right: 0;
+            top: 37%;
+        }
+        .symbWrapper{
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+        #queryResults{
+            position: absolute;
+            top: 7%;
+            height: 40%;
+            width: 15%;
+            text-align: center;
+        }
+        #yearSlider{
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 10%;
+        }
+        #basemaps{
+            position: absolute;
+            bottom: 10%;
+            height: 35%;
+            width: 15%;
+        }
+        .basemapTextSymb{
+            border-bottom-width: 5px;
+            border-bottom-style: solid;
+            border-bottom-color: #68ACE5;
+            border-top-width: 5px;
+            border-top-style: solid;
+            border-top-color: #68ACE5;
+        }
+        input[type="checkbox"]{
+            cursor: pointer;
+        }
+        #symbToggle, #queryResults, header, .basemapTextSymb, #infoSources{
+            background-color: #68ACE5;
+            border-radius: 25px;
+        }
+        #infoSources{
+            position: absolute;
+            bottom: 11%;
+            right: 0;
+            height: 20%;
+            width: 15%;
+            text-align: center;
+        }
+
+    </style>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
+    <script src="https://js.arcgis.com/4.24/"></script>
+
+    <script>
+        // load needed esri modules
+        require(["esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer", "esri/widgets/Legend", "esri/widgets/TimeSlider", "esri/core/reactiveUtils", "esri/widgets/Home",
+            "esri/widgets/BasemapGallery"],
+            (Map, MapView, FeatureLayer, Legend, TimeSlider, reactiveUtils, Home, BasemapGallery) =>{
+            $(function(){ // load jquery
+
+                // load documentation splash page
+                $('#splashPage').click(function (){
+                    $('#splashPageText').dialog({
+                        buttons: {
+                            Close: function (){
+                                $(this).dialog('close');
+                            }
+                        },
+                        modal: true,
+                        height: 900,
+                        width: 750
+                    });
+                });
+
+                // load web map and essential components
+                const map = new Map({
+                    basemap: 'gray-vector'
+                });
+                const view = new MapView({
+                    map: map,
+                    container: 'mapDiv',
+                    center: [0.263695, 35.073021],
+                    zoom: 2
+                });
+                view.ui.add(new Home({view: view}), {position: 'top-left', index: 0});
+
+                // add influenza prediction dataset
+                const fluLayer = new FeatureLayer({
+                    url: 'https://services1.arcgis.com/0MSEUqKaxRlEPj5g/arcgis/rest/services/MS_HopHacks_2023_Influenza_Global_Predictions_2023_to_2028/FeatureServer/0',
+                    title: 'Influenza Infections 2023 - 2028',
+                    definitionExpression: 'ISO_YEAR = 2023'
+                });
+                map.add(fluLayer);
+
+                function randomHexColor(){ // function used to generate random hex colors
+                    let letters = '0123456789ABCDEF';
+                    let hexColor = '#';
+                    for (var i=0; i < 6; i++){
+                        hexColor += letters[Math.floor(Math.random() * 16)]
+                    }
+                    return hexColor;
+                }
+
+                function totalSum(arrayOfNums){
+                    // adds up all numbers found in array
+                    const popSize = arrayOfNums.length;
+                    let summation = 0;
+                    for (var i=0; i < popSize; i++){
+                        summation += arrayOfNums[i];
+                    }
+                    return summation
+                }
+
+                function populationMean(arrayOfNums){
+                    // calculate mean of numbers found in array
+                    const popSize = arrayOfNums.length;
+                    return totalSum(arrayOfNums) / popSize;
+                }
+
+                function standardDeviation(arrayOfNums){
+                    // calculates standard deviation of numbers found in array
+                    const popSize = arrayOfNums.length;
+
+                    let sumOfSq = 0;
+                    for (const val in arrayOfNums){
+                        sumOfSq += Math.pow((val - (populationMean(arrayOfNums))), 2);
+                    }
+
+                    return Math.sqrt(sumOfSq / (popSize - 1)); // n - 1 due to this being sample standard deviation
+
+                }
+
+                let mean;
+                let stdDev;
+                function generateRender(renderType, field, fluArray){
+                    // this function updates the render depending on what query is submitted to the ArcGIS Online (AGOL) REST endpoing
+                    mean = populationMean(fluArray);
+                    stdDev = standardDeviation(fluArray);
+
+                    let prepRenderObj;
+                    if (renderType === 'simple'){
+                        // object properties for the gradient symbology
+                        prepRenderObj = {
+                            type: renderType,
+                            label: 'Gradient Symbology',
+                            symbol: {type: 'simple-fill'},
+                            visualVariables: [
+                                {
+                                    type: 'color',
+                                    field: field,
+                                    legendOptions: {title: 'via Gradient Symbology'},
+                                    stops: [
+                                        {
+                                            value: 0,
+                                            color: '#ffffff',
+                                            style: 'solid',
+                                            label: '0 Infections'
+                                        },{
+                                            value: Math.max(...fluArray),
+                                            color: '#ff0000',
+                                            style: 'solid',
+                                            label: `${Math.max(...fluArray)} Infections`
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    } else if (renderType === 'class-breaks'){
+                        // object properties for the class-break symbology
+                        prepRenderObj = {
+                            type: renderType,
+                            field: field,
+                            legendOptions: {title: 'via Class Break Symbology'},
+                            classBreakInfos: []
+                        }
+
+                        const classSymb = {
+                            0: '#049418',
+                            1: '#759f7b',
+                            2: '#979f98',
+                            3: '#a88989',
+                            4: '#a44444',
+                            5: '#bb0808'
+                        }
+
+                        let prevVal = 0;
+                        for (var i=0; i < 6; i++){
+                            let maxVal;
+                            let label;
+                            if (i === 5){
+                                maxVal = Math.max(...fluArray);
+                            } else {
+                                maxVal = Math.round(mean + stdDev * (i + 1));
+                            }
+                            label = `Flu Count ${i + 1}x Std`;
+                            prepRenderObj.classBreakInfos.push({
+                                minValue: prevVal,
+                                maxValue: maxVal,
+                                symbol: {
+                                    type: 'simple-fill',
+                                    color: classSymb[i],
+                                    style: 'solid',
+                                    outline: {width: 0.25, color: 'black'}
+                                },
+                                label: label
+                            });
+                            prevVal = 1 + maxVal;
+                        }
+
+                    } else if (renderType === 'dot-density'){
+                        // object properties for the dot-density symbology
+                        prepRenderObj = {
+                            type: renderType,
+                            dotValue: 250,
+                            referenceScale: 10000000,
+                            dotSize: 15,
+                            legendOptions: {title: 'via Dot Density Symbology', unit: 'Infections'},
+                            attributes: [{
+                                field: field,
+                                color: 'blue',
+                                label: 'Predicted Flu Densities'
+                            }],
+                            seed: 42
+                        }
+                    } else {
+                        console.log('Invalid Symbology Selected, Please Try Again.')
+                        prepRenderObj = {}
+                    }
+
+                    return prepRenderObj
+
+                }
+
+                fluLayer.when((result) =>{ // once when the dataset loads, then...
+
+                    fluLayer.popupTemplate = {
+                        // object for popup template (this is whats shows then the user clicks on a rendered country)
+                        title: '{COUNTRY_AR}',
+                        content: [{
+                            type: 'fields',
+                            fieldInfos: [{
+                                fieldName: 'ISO_YEAR',
+                                label: 'Year from Query Result'
+                            },{
+                                fieldName: 'INF_ALL',
+                                label: 'Total Infections from Query',
+                                digitSeparator: true
+                            }]
+                        }]
+                    };
+
+                    let domains = result.getFieldDomain('COUNTRY_AR');
+                    const uniqueRender = {
+                        // object properties for the default random color symbology
+                        type: 'unique-value',
+                        field: 'COUNTRY_AR',
+                        uniqueValueInfos: []
+                    }
+
+                    const jsonDomains = domains.toJSON();
+                    // populate the symbology values based on unique country names
+                    jsonDomains.codedValues.forEach((d) =>{
+                        uniqueRender.uniqueValueInfos.push({
+                            value: d['code'],
+                            symbol: {
+                                type: 'simple-fill',
+                                color: randomHexColor()
+                            }
+                        });
+                    });
+
+                    fluLayer.renderer = uniqueRender;
+
+                    const $main = $('main');
+
+                    // load basemap widget
+                    $main.append($('<div id="basemaps"></div>'));
+                    new BasemapGallery({view: view, container: 'basemaps'});
+
+                    // load legend widget
+                    const $legendDiv = $('<div id="legend"></div>');
+                    $main.append($legendDiv);
+
+                    new Legend({
+                        view: view,
+                        container: $legendDiv.get(0)
+                    });
+
+                    async function getArrayCount(){
+                        // this function generates an array of flu infection counts based on the inputted query
+                        let fluArray = [];
+                        await fluLayer.queryFeatures({where: fluLayer.definitionExpression, outFields: ['INF_ALL']}).then((featureSet) =>{
+                            const jsonFeatureSet = featureSet.toJSON();
+                            jsonFeatureSet.features.forEach((fluAttr) =>{
+                                fluArray.push(fluAttr.attributes.INF_ALL);
+                            });
+                        });
+                        return fluArray;
+                    }
+
+                    // load the symbology types widget
+                    const $symbToggle = $('<div id="symbToggle" style="text-align: center"><div style="padding-bottom: 5px"><br><b>Select Symbology Type</b></div></div>');
+                    const symbTypes = {
+                        'Random_Default': 'Random Color Default',
+                        'Gradient_Symbology': 'Gradient Flu Count',
+                        'Class_Break_Symbology': 'Standard Deviation Breaks',
+                        'Dot_Density_Symbology': 'Infection Density Analysis'
+                    }
+                    Object.keys(symbTypes).forEach((val) =>{
+                        let $wrapper = $('<div class="symbWrapper"></div>');
+                        let $checkbox = $(`<input id="${val}" type="checkbox">`);
+                        function checkCheckBoxes($checkboxElm){
+                            if ($checkboxElm.prop('checked')){
+                                const $getCheckBoxes = $symbToggle.find('input[type="checkbox"]');
+                                $getCheckBoxes.each((idx, chkbx) =>{
+                                    if (chkbx.id !== $checkboxElm.attr('id')){
+                                        chkbx.checked = false;
+                                    }
+                                });
+                                return true;
+                            } else {
+                                alert('One symbology type must be selected, please try again : )');
+                                $checkboxElm.prop('checked', true);
+                                return false
+                            }
+                        }
+                        if (val === 'Random_Default'){
+                            $checkbox.attr('checked', true);
+                            $checkbox.click(function (){
+                                const checkBoxCheck = checkCheckBoxes($(this));
+                                if (checkBoxCheck){
+                                    fluLayer.renderer = uniqueRender;
+                                }
+                            });
+                        } else if (val === 'Gradient_Symbology' || val === 'Class_Break_Symbology' || val === 'Dot_Density_Symbology'){
+                            $checkbox.click(function (){
+                                const checkBoxCheck = checkCheckBoxes($(this));
+                                if (checkBoxCheck){
+                                    getArrayCount().then((fluArray) =>{
+                                        let renderType;
+                                        if (val === 'Gradient_Symbology'){
+                                            renderType = 'simple';
+                                        } else if (val === 'Class_Break_Symbology'){
+                                            renderType = 'class-breaks';
+                                        } else if (val === 'Dot_Density_Symbology'){
+                                            renderType = 'dot-density';
+                                        } else {
+                                            console.log('Invalid Symbology Selection');
+                                        }
+                                        fluLayer.renderer = generateRender(renderType, 'INF_ALL', fluArray);
+                                    });
+                                }
+                            });
+                        }
+                        let $label = $(`<br><label for="${val}">${symbTypes[val]}</label>`);
+                        [$label, $checkbox].forEach(($jQueryElm) =>{
+                            $wrapper.append($jQueryElm);
+                        });
+                        $symbToggle.append($wrapper)
+                    });
+                    $main.append($symbToggle);
+
+                    // load the Query Result widget
+                    getArrayCount().then((fluArray) =>{
+                        const $queryResults = $('<div id="queryResults"><h3>Query Results:</h3></div>');
+                        const $yearResult = $(`<div id="yearResult"><h4>Year(s):</h4><p id="yearVal">${fluLayer.definitionExpression.split(' = ').slice(-1)}</p></div>`);
+                        const $meanResult = $(`<div id="meanResult"><h4>Mean Number of Infections:</h4><p id="meanVal">${Math.round(populationMean(fluArray)).toLocaleString()}</p></div>`);
+                        const $stdDivResult = $(`<div id="stdDivResult"><h4>Standard Deviation of Infections:</h4><p id="stdDivVal">${Math.round(standardDeviation(fluArray)).toLocaleString()}</p></div>`);
+                        const $totalSumResult = $(`<div id="totalSumResult"><h4>Total Global Influenza Infections:</h4><p id="totalSumVal">${totalSum(fluArray).toLocaleString()}</p></div>`);
+                        [$yearResult, $meanResult, $stdDivResult, $totalSumResult].forEach(($jQueryElm) =>{
+                            $queryResults.append($jQueryElm);
+                        });
+                        $queryResults.append($('<div><br><h3 class="basemapTextSymb">Basemap Gallery</h3></div>'));
+                        $main.append($queryResults);
+                    });
+
+                    // load the year time slider widget
+                    const yearSlider = new TimeSlider({
+                        stops: {
+                            interval: {
+                                value: 1,
+                                unit: 'years'
+                            }
+                        },
+                        playRate: 2500,
+                        fullTimeExtent:{
+                            start: new Date(2022, 12, 1),
+                            end: new Date(2028, 12, 1)
+                        },
+                        view: view,
+                        container: document.getElementById('yearSlider')
+                    });
+
+                    yearSlider.when(() =>{ // when the year time slider loads, then...
+
+                        function updateQueryText(yearVal, fluArray){
+                            $('#yearVal').text(yearVal);
+                            $('#meanVal').text(Math.round(populationMean(fluArray)).toLocaleString());
+                            $('#stdDivVal').text(Math.round(standardDeviation(fluArray)).toLocaleString());
+                            $('#totalSumVal').text(totalSum(fluArray).toLocaleString());
+                        }
+
+                        async function preWait(){
+                            return new Promise(resolve => {
+                                setTimeout(resolve, 500)
+                            });
+                        }
+                        async function waitLoad(){
+                            view.whenLayerView(fluLayer).then((layerLoad) =>{
+                                async function awaitLayer(){
+                                    await reactiveUtils.whenOnce(() => !layerLoad.updating);
+                                }
+                                awaitLayer();
+                            });
+                        }
+                        yearSlider.watch('timeExtent', () =>{ // execute queries when user interacts with time slider
+                            preWait().then(() =>{
+                                const minYearVal = new Date($('.esri-slider__anchor-0').prop('data-value')).getFullYear();
+                                const maxYearVal = new Date($('.esri-slider__anchor-1').prop('data-value')).getFullYear();
+                                let yearQuery;
+                                let yearVal
+                                if (maxYearVal - minYearVal === 1){
+                                    yearQuery = `ISO_YEAR = ${minYearVal}`;
+                                    yearVal = minYearVal;
+                                } else if (maxYearVal - minYearVal > 1){
+                                    yearQuery = `ISO_YEAR >= ${minYearVal} and ISO_YEAR < ${maxYearVal}`;
+                                    yearVal = `${minYearVal} to ${maxYearVal}`;
+                                }
+                                if (yearQuery){
+                                    fluLayer.definitionExpression = yearQuery;
+                                    getArrayCount().then((fluArray) =>{
+                                        if ($('#Gradient_Symbology').prop('checked')){
+                                            fluLayer.renderer = generateRender('simple', 'INF_ALL', fluArray);
+                                        } else if ($('#Class_Break_Symbology').prop('checked')){
+                                            fluLayer.renderer = generateRender('class-breaks', 'INF_ALL', fluArray);
+                                        } else if ($('#Dot_Density_Symbology').prop('checked')){
+                                            fluLayer.renderer = generateRender('dot-density', 'INF_ALL', fluArray);
+                                        }
+                                        updateQueryText(yearVal, fluArray);
+                                    });
+                                    waitLoad();
+                                }
+
+                            });
+                        });
+                    }, (error) =>{
+                        console.log('ERROR WHILE LOADING YEAR SLIDER:\n', error);
+                    });
+
+                }, (error) =>{
+                    console.log('ERROR WHILE LOADING WEBAPP:\n', error);
+                });
+
+            }); // end of jquery
+        }); // end of arcgis sdk
+    </script>
+
+</head>
+    <body>
+        <header>
+            <div style="position: absolute; top: 15%; left: 35%">MZ HopHacks 2023: Influenza Prediction WebApp</div>
+            <button id="splashPage" style="position: absolute; right: 20%; top: 25%"><b>Documentation</b></button>
+        </header>
+        <main>
+            <div id="splashPageText" style="display: none; text-align: center"><br>Author: Marko Zlatic<br>Date: Sept 17th, 2023<br>Expected Graduation: May 2024<br><br><b>This WebApplication was built for HopHacks 2023.</b><br><br> The <i>Infuenza Prediction WebApp</i> is a web application that was primarily built with the ArcGIS Maps SDK for JavaScript and jQuery, for the purpose of illustrating results of an XGBoost Regressor model predicting the number of infuenza infections for 180 countries from 2023 to 2028.<br><br>For more information regarding the machine learning model that was used, please click on the GitHub link on the bottom right of the webapp (a Jupyter notebook was used to illustrate the process of developing and training the XGBoost regressor model, the code being written in Python).<br><br>To utilize the web application is as follows:<br><b>Time Slider (very bottom of webapp): </b>This widget effectively queries the hosted dataset based on the year of predicted influenza infections for each country. Due to the sample size comprising of 180 countries, there might be some years in which some countries do not render (ie visualize); this means that there is no data present for the given year.<br><br><b>Select Symbology by Type Widget (far middle right):</b> This widget sends a request to the ArcGIS Online (AGOL) REST endpoint to adjust the symbology currently being visualized for the user.<br>The <b>Random Color Default option</b> is a simple random generated color symbology for each of the available countries that was able to properly query (every time the webapp reloads or this option is reselected, a new generated array of colors are created to symbolize the web map.<br>The <b>Gradient Flu Count option</b> is a gradient-based symbology renderer that darkens the map (with dark red being the max extreme and white being the minimum extreme) based on the number of infuenza infections there are per country (this symbology isnt influenced by the size of the country, rather the total count of infections (in comparison to other countries globally)<br>The <b>Standard Deviation Breaks option</b> is a class-break-style symbology that classifies an array of values based on pre-defined values. The pre-defined values selected was the standard deviation of the total dataset. This means, if a country has a darker red color, then the number of infections is far greater when compared to the observed mean; the opposite is said with countries that are classified with a dark green color (indicating the number of infections are far less when compared to the observed mean)<br>The <b>Infection Density Analysis option</b> is a spatially-defined dot density symbology that can be used to help predict where infections are the highest (within a countries boarders). Since the analysis was done using strictly tabular information (ie lacking geospatial components), there is no way to properly predict where on the map the infections are occurring (and at what rate). As a result, a dot-density methodology randomly generates a fixed number of points based on the size of the countries respected land area and number of infections; estimating potential locations for infection 'hot spots'.<br><br><b>Basemap Gallery Widget (far bottom left):</b> This widget can be used to change the current basemap (default is the light-gray canvas) displayed on the web map.<br><br><b>Legend Widget (far top right):</b> This widget assists with displaying the render options that are returned from the AGOL REST endpoint.<br><br><b>Query Results (far top left):</b> This widget is a read-only dynamic text widget that renders the resulting query that is returned from the AGOL REST endpoint.<br><br><b>Sources (far bottom right):</b> Web links to several sources (source code, parent dataset used to generate predicted results, and the final-engineered product that powers the Influenza Prediction WebApp).</div>
+            <div id="mapDiv"></div>
+            <div id="yearSlider"></div>
+            <div id="infoSources"><br><b>Sources:</b><br><br>Source Code: <a href="https://github.com/mzlatic1/hophacks2023">GitHub</a><br><br>Parent Datasets: <a href="https://www.who.int/tools/flunet">FluNet</a> & <a href="https://hub.arcgis.com/datasets/esri::world-countries-generalized/explore">Hub</a><br><br>Engineered Dataset: <a href="https://services1.arcgis.com/0MSEUqKaxRlEPj5g/arcgis/rest/services/MS_HopHacks_2023_Influenza_Global_Predictions_2023_to_2028/FeatureServer/0">AGOL</a></div>
+        </main>
+    </body>
+</html>
